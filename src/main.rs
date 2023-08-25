@@ -49,7 +49,6 @@ impl CliOpts {
         loop {
             tokio::select! {
                 () = &mut sleep => {
-                    //println!("Sending ppost request! with vals {odd_count}, {even_count}");
                     let client = reqwest::Client::new();
                     let body = format!("odd={odd_count} even={even_count}");
                     even_count = 0;
@@ -67,7 +66,6 @@ impl CliOpts {
                     }
                 }
                 val = reciever.recv() => {
-                    //println!("RECIEVED NEW DATA VAL: {val:?}, even: {even_count}, odd: {odd_count}");
                     if let Some(val) = val {
                         if val % 2 == 0 {
                             even_count += 1;
@@ -111,19 +109,15 @@ async fn handle_client(
         stream.read_line(&mut data).await?;
         if !data.is_empty() {
             let lines: Vec<&str> = data.split('\n').collect();
-            //println!("RECIEVED LINES: {lines:?}");
 
             for line in &lines {
                 if !line.is_empty() {
                     let data: FluentData = if let Ok(data) = serde_json::from_str(line) {
                         data
                     } else {
-                        //println!("Could not deserialize");
                         continue;
                     };
-                    //println!("RECIEVED DATA: {data:?}");
                     let _ = sender.send(data.rand_value);
-                    //let _ = stream.write_all(body.as_bytes());
                 }
             }
         }

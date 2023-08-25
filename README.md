@@ -10,6 +10,13 @@ cargo run
 ```
 
 
+There are also options for:
+* `--addr` - the bind address to listen on. Defaults to `127.0.0.1:4242`
+* `--sleep-timeout` - The amount of seconds to wait between web requests. Defaults to `60` seconds.
+* `--out-file` - Where to write url response from the post requests. Defaults to `/dev/stdout`.
+* `--max-count` - The number of web requests this process should do before quitting. Defaults to `u64::MAX`.
+
+
 # Testing
 
 `./tests.sh` is a non comprehensive test script. This project is about counting

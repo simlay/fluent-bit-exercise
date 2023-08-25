@@ -36,7 +36,7 @@ OUT=$(for i in $(cat ${URL_FILE}); do curl -s $i; done)
 echo $OUT
 EXPECTED="odd=0 even=10odd=10 even=0odd=0 even=10odd=10 even=0"
 
-if [ "${OUT}" -ne "${EXPECTED}" ]; then
+if [ "${OUT}" != "${EXPECTED}" ]; then
     echo OUT PUT DOES NOT MATCH
     exit 1
 fi
