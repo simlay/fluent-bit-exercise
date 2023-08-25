@@ -11,7 +11,7 @@ cargo llvm-cov run -- --sleep-timeout 1 --max-count 0 > /dev/null
 cargo llvm-cov run --lcov --output-path lcov.info -- --sleep-timeout $TIMEOUT --max-count $MAX_REQUESTS --out-file $URL_FILE &
 
 # We hope that this is long enough for rust to start listening.
-sleep 3
+sleep 6
 
 
 
