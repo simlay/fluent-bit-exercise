@@ -23,6 +23,8 @@ jobs:
       - run: cargo test
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Install socat
+        run: sudo apt update && sudo apt -y install socat
       - name: Generate code coverage
         run: ./tests.sh
       - name: Upload coverage to Codecov
