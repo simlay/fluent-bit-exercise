@@ -1,10 +1,9 @@
-use std::sync::Arc;
+use std::{fs::File, io::Write, path::PathBuf};
 use tokio::{
     net::{TcpListener, TcpStream},
     io::{
         BufReader,
         AsyncBufReadExt,
-        AsyncWriteExt,
     },
     time::{
         Duration,
@@ -15,7 +14,6 @@ use tokio::{
             unbounded_channel,
             UnboundedSender, UnboundedReceiver,
         },
-        Mutex,
     }
 };
 use serde::{Serialize, Deserialize};
@@ -32,9 +30,9 @@ struct CliOpts {
     #[arg(long, default_value = "18446744073709551615")]
     max_count: u64,
 
-    /// This parameter is for integration testing.
-    #[arg(long, default_value = "false")]
-    send_url_over_socket: bool,
+    #[arg(long, default_value = "/dev/stdout")]
+    out_file: PathBuf,
+
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -47,7 +45,9 @@ impl CliOpts {
     async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         let listener = TcpListener::bind(self.addr).await?;
         let mut handles = Vec::new();
-        let counters : Arc<Mutex<(i128, i128)>> = Arc::new(Mutex::new((0, 0)));
+        let (sender, mut reciever) : (UnboundedSender<i128>, UnboundedReceiver<i128>)= unbounded_channel();
+        let (mut even_count, mut odd_count) = (0, 0);
+        let mut file = File::create(self.out_file)?;
 
         let timeout = Duration::from_secs(self.sleep_timeout);
 
@@ -55,33 +55,44 @@ impl CliOpts {
         // https://docs.rs/tokio/latest/tokio/time/struct.Sleep.html#examples
         let sleep = tokio::time::sleep(timeout);
         tokio::pin!(sleep);
+        let mut request_count = 0;
 
-        for i in 0..self.max_count {
+        loop {
             tokio::select! {
                 () = &mut sleep => {
                     //println!("Sending ppost request! with vals {odd_count}, {even_count}");
                     let client = reqwest::Client::new();
-                    let (mut even_count, mut odd_count) = *counters.lock().await;
                     let body = format!("odd={odd_count} even={even_count}");
                     even_count = 0;
                     odd_count = 0;
                     sleep.as_mut().reset(Instant::now() + timeout);
-                    if self.send_url_over_socket {
-                    } else {
-                        let req = client.post("https://paste.c-net.org/").body(body);
-                        let text = req.send().await?.text().await?;
-                        print!("{body} - {text}");
+                    let req = client.post("https://paste.c-net.org/").body(body.clone());
+                    if let Ok(resp) = req.send().await {
+                        if let Ok(text) = resp.text().await {
+                            file.write_all(format!("{text}").as_bytes())?;
+                        }
                     }
-                    if i >= self.max_count - 1 {
+                    request_count += 1;
+                    if request_count >= self.max_count - 1 {
                         return Ok(())
+                    }
+                }
+                val = reciever.recv() => {
+                    //println!("RECIEVED NEW DATA VAL: {val:?}, even: {even_count}, odd: {odd_count}");
+                    if let Some(val) = val {
+                        if val % 2 == 0 {
+                            even_count += 1;
+                        } else {
+                            odd_count += 1;
+                        }
                     }
                 }
                 acceptor = listener.accept() => {
                     match acceptor {
                         Ok((socket, _addr)) => {
-                            let counters = counters.clone();
+                            let sender = sender.clone();
                             let handle = tokio::spawn(async move {
-                                let _ = handle_client(socket, counters).await;
+                                let _ = handle_client(socket, sender).await;
                             });
                             handles.push(handle);
                         },
@@ -90,7 +101,6 @@ impl CliOpts {
                 }
             }
         }
-        Ok(())
     }
 }
 
@@ -102,72 +112,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 
 }
-async fn handle_client(stream: TcpStream, counters: Arc<Mutex<(i128,i128)>>) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_client(stream: TcpStream, sender: UnboundedSender<i128>) -> Result<(), Box<dyn std::error::Error>> {
     let mut stream = BufReader::new(stream);
-    let mut data = String::new();
 
     loop {
+        let mut data = String::new();
         stream.read_line(&mut data).await?;
-        let lines : Vec<&str> = data.split('\n').collect();
-        for line in &lines {
-            if !line.is_empty() {
-                let data : FluentData = if let Ok(data) = serde_json::from_str(line) {
-                    data
-                } else {
-                    continue;
-                };
-                let (mut even_counter, mut odd_counter) = *counters.lock().await;
-                if data.rand_value % 2 == 0 {
-                    even_counter += 1;
-                } else {
-                    odd_counter += 1;
+        if !data.is_empty() {
+            let lines : Vec<&str> = data.split('\n').collect();
+            //println!("RECIEVED LINES: {lines:?}");
+
+            for line in &lines {
+                if !line.is_empty() {
+                    let data : FluentData = if let Ok(data) = serde_json::from_str(line) {
+                        data
+                    } else {
+                        //println!("Could not deserialize");
+                        continue;
+                    };
+                    //println!("RECIEVED DATA: {data:?}");
+                    let _ = sender.send(data.rand_value);
+                    //let _ = stream.write_all(body.as_bytes());
                 }
-                //let _ = stream.write_all(body.as_bytes());
             }
         }
     }
 }
 
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[tokio::test]
-    async fn single_client_test() {
-        let addr = "127.0.0.1:4242";
-        let opt_thread = tokio::spawn(async move {
-            let opts = CliOpts {
-                addr: addr.to_string(),
-                sleep_timeout: 1,
-                max_count: 10,
-                send_url_over_socket: true,
-            };
-            let _ = opts.run().await;
-        });
-        // Must wait a few ms to ensure the server is listening.
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        let mut stream = TcpStream::connect(addr).await.expect("Failed to connect to server");
-
-        for i in 0..100 {
-            let data = FluentData {
-                date: 0.0,
-                rand_value: i,
-            };
-            let json = serde_json::to_string(&data).expect("Failed to serialize to json");
-            let json = format!("{json}\n");
-            stream.write(json.as_bytes()).await.expect("Failed to write to stream");
-            let _ = stream.flush().await;
-
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        println!("Ended send events!");
-
-        let mut stream = BufReader::new(stream);
-        let mut data = String::new();
-
-        stream.read_line(&mut data).await.expect("Failed to read line");
-        assert_eq!(data, "aoeu");
-
-        let _ = opt_thread.await;
-    }
-}

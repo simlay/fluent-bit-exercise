@@ -1,5 +1,5 @@
 [package]
-name = "memfault-takehome"
+name = "fluent-bit-exercise"
 version = "0.1.0"
 edition = "2021"
 
