@@ -1,23 +1,12 @@
+use clap::Parser;
+use serde::{Deserialize, Serialize};
 use std::{fs::File, io::Write, path::PathBuf};
 use tokio::{
+    io::{AsyncBufReadExt, BufReader},
     net::{TcpListener, TcpStream},
-    io::{
-        BufReader,
-        AsyncBufReadExt,
-    },
-    time::{
-        Duration,
-        Instant,
-    },
-    sync::{
-        mpsc::{
-            unbounded_channel,
-            UnboundedSender, UnboundedReceiver,
-        },
-    }
+    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    time::{Duration, Instant},
 };
-use serde::{Serialize, Deserialize};
-use clap::Parser;
 
 #[derive(Parser)]
 struct CliOpts {
@@ -25,14 +14,13 @@ struct CliOpts {
     addr: String,
 
     #[arg(long, default_value = "60")]
-    sleep_timeout : u64,
+    sleep_timeout: u64,
 
     #[arg(long, default_value = "18446744073709551615")]
     max_count: u64,
 
     #[arg(long, default_value = "/dev/stdout")]
     out_file: PathBuf,
-
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -45,7 +33,8 @@ impl CliOpts {
     async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         let listener = TcpListener::bind(self.addr).await?;
         let mut handles = Vec::new();
-        let (sender, mut reciever) : (UnboundedSender<i128>, UnboundedReceiver<i128>)= unbounded_channel();
+        let (sender, mut reciever): (UnboundedSender<i128>, UnboundedReceiver<i128>) =
+            unbounded_channel();
         let (mut even_count, mut odd_count) = (0, 0);
         let mut file = File::create(self.out_file)?;
 
@@ -69,7 +58,7 @@ impl CliOpts {
                     let req = client.post("https://paste.c-net.org/").body(body.clone());
                     if let Ok(resp) = req.send().await {
                         if let Ok(text) = resp.text().await {
-                            file.write_all(format!("{text}").as_bytes())?;
+                            file.write_all(text.to_string().as_bytes())?;
                         }
                     }
                     request_count += 1;
@@ -110,21 +99,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let opts = CliOpts::parse();
     opts.run().await?;
     Ok(())
-
 }
-async fn handle_client(stream: TcpStream, sender: UnboundedSender<i128>) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_client(
+    stream: TcpStream,
+    sender: UnboundedSender<i128>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut stream = BufReader::new(stream);
 
     loop {
         let mut data = String::new();
         stream.read_line(&mut data).await?;
         if !data.is_empty() {
-            let lines : Vec<&str> = data.split('\n').collect();
+            let lines: Vec<&str> = data.split('\n').collect();
             //println!("RECIEVED LINES: {lines:?}");
 
             for line in &lines {
                 if !line.is_empty() {
-                    let data : FluentData = if let Ok(data) = serde_json::from_str(line) {
+                    let data: FluentData = if let Ok(data) = serde_json::from_str(line) {
                         data
                     } else {
                         //println!("Could not deserialize");
@@ -138,4 +129,3 @@ async fn handle_client(stream: TcpStream, sender: UnboundedSender<i128>) -> Resu
         }
     }
 }
-
