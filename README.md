@@ -1,3 +1,4 @@
+[![codecov](https://codecov.io/gh/simlay/fluent-bit-exercise/graph/badge.svg?token=BJM75ILQKJ)](https://codecov.io/gh/simlay/fluent-bit-exercise)
 # Overview
 
 This is an exercise in listening on `127.0.0.1:4242` for some simple json messages from `fluent-bit`.
